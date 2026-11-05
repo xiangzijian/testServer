@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.slg</groupId>
+        <artifactId>slg-server</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>slg-robot</artifactId>
+    <name>slg-robot</name>
+    <description>测试客户端：连接 gateway 发心跳与 ping，验证 gateway→game/world 链路；含进程内端到端测试</description>
+
+    <properties>
+        <main.class>com.slg.robot.RobotMain</main.class>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.slg</groupId>
+            <artifactId>slg-common</artifactId>
+        </dependency>
+
+        <!-- 仅端到端测试使用：在同一 JVM 内拉起三服 -->
+        <dependency>
+            <groupId>com.slg</groupId>
+            <artifactId>slg-gateway</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.slg</groupId>
+            <artifactId>slg-world</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.slg</groupId>
+            <artifactId>slg-game</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

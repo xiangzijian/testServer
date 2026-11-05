@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.slg</groupId>
+        <artifactId>slg-server</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>slg-game</artifactId>
+    <name>slg-game</name>
+    <description>Game 主城服（骨架：内部 TCP 服务端 + handler 分发 + 示例 ping）</description>
+
+    <properties>
+        <main.class>com.slg.game.GameServer</main.class>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.slg</groupId>
+            <artifactId>slg-common</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

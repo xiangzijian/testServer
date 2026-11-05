@@ -1,0 +1,38 @@
+// 客户端 <-> Gateway 协议（body 部分）。消息 ID 见 com.slg.common.msg.MsgIds。
+syntax = "proto3";
+
+package slg.client;
+
+option java_package = "com.slg.common.proto";
+option java_outer_classname = "ClientProto";
+option java_multiple_files = true;
+
+// 10099 通用错误回包（seq 与原请求一致）
+message ErrorResp {
+  int32 code = 1;
+  string message = 2;
+  int32 reqMsgId = 3;
+}
+
+// 10001 / 10002 心跳，由 Gateway 本地处理，不转发
+message HeartbeatReq {
+  int64 clientTime = 1;
+}
+
+message HeartbeatResp {
+  int64 serverTime = 1;
+}
+
+// 20001/20002（→ game）与 30001/30002（→ world）共用的示例 ping/pong
+message PingReq {
+  string content = 1;
+  int64 clientTime = 2;
+}
+
+message PingResp {
+  string content = 1;
+  int64 clientTime = 2;
+  int64 serverTime = 3;
+  // 处理该请求的后端节点，形如 "game-1"
+  string server = 4;
+}

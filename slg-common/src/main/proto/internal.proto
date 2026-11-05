@@ -1,0 +1,32 @@
+// 服务间内部协议的控制消息（PacketKind.CONTROL）。消息 ID 见 com.slg.common.net.internal.ControlMsgIds。
+syntax = "proto3";
+
+package slg.internal;
+
+option java_package = "com.slg.common.proto";
+option java_outer_classname = "InternalProto";
+option java_multiple_files = true;
+
+// 1 连接建立后由客户端一侧（如 gateway）发起
+message HandshakeReq {
+  string serviceType = 1;
+  int32 nodeId = 2;
+}
+
+// 2 服务端回应握手
+message HandshakeResp {
+  string serviceType = 1;
+  int32 nodeId = 2;
+  int64 serverTime = 3;
+}
+
+// 3 / 4 内部链路心跳
+message InternalHeartbeat {
+  int64 time = 1;
+}
+
+// 5 gateway 通知后端：某客户端会话已断开
+message SessionClosed {
+  int64 sessionId = 1;
+  int64 playerId = 2;
+}

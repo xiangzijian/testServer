@@ -6,12 +6,12 @@
 
     <parent>
         <groupId>com.slg</groupId>
-        <artifactId>slg-server</artifactId>
+        <artifactId>test-server</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>slg-gateway</artifactId>
-    <name>slg-gateway</name>
+    <artifactId>test-gateway</artifactId>
+    <name>test-gateway</name>
     <description>Gateway 网关（客户端长连接、心跳、会话、按消息 ID 路由到 world/game）</description>
 
     <properties>
@@ -21,7 +21,7 @@
     <dependencies>
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-common</artifactId>
+            <artifactId>test-common</artifactId>
         </dependency>
     </dependencies>
 

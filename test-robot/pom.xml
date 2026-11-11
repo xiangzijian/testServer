@@ -6,12 +6,12 @@
 
     <parent>
         <groupId>com.slg</groupId>
-        <artifactId>slg-server</artifactId>
+        <artifactId>test-server</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>slg-robot</artifactId>
-    <name>slg-robot</name>
+    <artifactId>test-robot</artifactId>
+    <name>test-robot</name>
     <description>测试客户端：连接 gateway 发心跳与 ping，验证 gateway→game/world 链路；含进程内端到端测试</description>
 
     <properties>
@@ -21,23 +21,23 @@
     <dependencies>
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-common</artifactId>
+            <artifactId>test-common</artifactId>
         </dependency>
 
         <!-- 仅端到端测试使用：在同一 JVM 内拉起三服 -->
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-gateway</artifactId>
+            <artifactId>test-gateway</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-world</artifactId>
+            <artifactId>test-world</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-game</artifactId>
+            <artifactId>test-game</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

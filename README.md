@@ -25,10 +25,10 @@ testServer/
 │       ├── resources/logback.xml
 │       └── java/com/slg/common/
 │           ├── config/          # ConfigLoader（properties 加载）、ServerConfig
-│           ├── discovery/       # ServiceType、ServiceInstance、ServiceDiscovery 接口、StaticServiceDiscovery
+│           ├── discovery/       # ServiceType、discovery.com.test.common.discovery.com.slg.common.ServiceInstance、ServiceDiscovery 接口、StaticServiceDiscovery
 │           ├── msg/             # MsgIds（消息 ID）、RouteTable（消息 ID→服务）、ErrorCodes
-│           ├── net/client/      # 客户端帧：ClientMessage、ClientCodec
-│           ├── net/internal/    # 内部协议：InternalPacket、InternalCodec、InternalServer、InternalClient(自动重连)
+│           ├── net/client/      # 客户端帧：client.net.com.test.common.client.net.com.slg.common.ClientMessage、ClientCodec
+│           ├── net/internal/    # 内部协议：internal.net.com.test.common.internal.net.com.slg.common.InternalPacket、InternalCodec、InternalServer、InternalClient(自动重连)
 │           ├── dispatch/        # MessageDispatcher（msgId→handler）、MessageHandler、HandlerContext、KeyedExecutor
 │           ├── server/          # BackendServer：world/game 共用的启动骨架
 │           └── util/

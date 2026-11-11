@@ -5,18 +5,19 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.slg</groupId>
-    <artifactId>slg-server</artifactId>
+    <artifactId>test-server</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>slg-server</name>
     <description>SLG server skeleton: gateway / world / game (network only)</description>
 
     <modules>
-        <module>slg-common</module>
-        <module>slg-world</module>
-        <module>slg-game</module>
-        <module>slg-gateway</module>
-        <module>slg-robot</module>
+        <module>test-common</module>
+        <module>test-login</module>
+        <module>test-world</module>
+        <module>test-game</module>
+        <module>test-gateway</module>
+        <module>test-robot</module>
     </modules>
 
     <properties>
@@ -28,6 +29,7 @@
 
         <netty.version>4.1.115.Final</netty.version>
         <protobuf.version>3.25.5</protobuf.version>
+        <spring-boot.version>4.1.2</spring-boot.version>
         <slf4j.version>2.0.16</slf4j.version>
         <logback.version>1.5.12</logback.version>
         <junit.version>5.11.3</junit.version>
@@ -37,28 +39,35 @@
         <dependencies>
             <dependency>
                 <groupId>com.slg</groupId>
-                <artifactId>slg-common</artifactId>
+                <artifactId>test-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.slg</groupId>
-                <artifactId>slg-gateway</artifactId>
+                <artifactId>test-gateway</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.slg</groupId>
-                <artifactId>slg-world</artifactId>
+                <artifactId>test-world</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.slg</groupId>
-                <artifactId>slg-game</artifactId>
+                <artifactId>test-game</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
                 <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

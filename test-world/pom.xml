@@ -6,22 +6,22 @@
 
     <parent>
         <groupId>com.slg</groupId>
-        <artifactId>slg-server</artifactId>
+        <artifactId>test-server</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>slg-game</artifactId>
-    <name>slg-game</name>
-    <description>Game 主城服（骨架：内部 TCP 服务端 + handler 分发 + 示例 ping）</description>
+    <artifactId>test-world</artifactId>
+    <name>test-world</name>
+    <description>World 世界服（骨架：内部 TCP 服务端 + handler 分发 + 示例 ping）</description>
 
     <properties>
-        <main.class>com.slg.game.GameServer</main.class>
+        <main.class>com.slg.world.WorldServer</main.class>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>com.slg</groupId>
-            <artifactId>slg-common</artifactId>
+            <artifactId>test-common</artifactId>
         </dependency>
     </dependencies>
 

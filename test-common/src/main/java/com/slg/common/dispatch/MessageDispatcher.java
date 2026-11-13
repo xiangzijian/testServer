@@ -5,19 +5,20 @@ import com.google.protobuf.Message;
 import com.google.protobuf.Parser;
 import com.slg.common.msg.ErrorCodes;
 import com.slg.common.net.internal.InternalPacket;
+import com.slg.common.thread.SlotExecutor;
 import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 消息 ID → handler 的注册与分发。
  * <pre>
  * dispatcher.register(MsgIds.GAME_PING_REQ, PingReq.parser(), new GamePingHandler());
  * </pre>
- * IO 线程调用 {@link #dispatch}，解析与 handler 执行都在 {@link KeyedExecutor} 上完成。
  */
 public final class MessageDispatcher {
 
@@ -25,7 +26,7 @@ public final class MessageDispatcher {
     private static final long SLOW_HANDLER_NANOS = 20_000_000L;
 
     private final Map<Integer, Registration<?>> handlers = new ConcurrentHashMap<>();
-    private final KeyedExecutor executor;
+    private final SlotExecutor executor;
 
     private record Registration<T extends Message>(Parser<T> parser, MessageHandler<T> handler) {
         void invoke(HandlerContext ctx, byte[] body) throws Exception {
@@ -40,8 +41,9 @@ public final class MessageDispatcher {
         }
     }
 
-    public MessageDispatcher(KeyedExecutor executor) {
+    public MessageDispatcher(SlotExecutor executor) {
         this.executor = executor;
+        executor.start();
     }
 
     public <T extends Message> MessageDispatcher register(int msgId, Parser<T> parser, MessageHandler<T> handler) {
@@ -56,12 +58,23 @@ public final class MessageDispatcher {
         return handlers.containsKey(msgId);
     }
 
+    /** 在 IO 线程调用；业务线程队列满或已关闭时直接回 {@link ErrorCodes#SERVER_BUSY}，不把异常抛进 Netty pipeline。 */
     public void dispatch(Channel channel, InternalPacket packet) {
         long key = packet.playerId() != 0 ? packet.playerId() : packet.sessionId();
-        executor.execute(key, () -> invoke(channel, packet));
+        try {
+            executor.execute(key, () -> invoke(channel, packet));
+        } catch (RejectedExecutionException e) {
+            log.warn("dispatch rejected msgId={} session={} player={}: {}",
+                    packet.msgId(), packet.sessionId(), packet.playerId(), e.getMessage());
+            new HandlerContext(channel, packet).replyError(ErrorCodes.SERVER_BUSY, "server busy");
+        }
     }
 
-    /** 在与该 key 的消息相同的业务线程上执行任意任务（如会话关闭清理），保证顺序。 */
+    /**
+     * 在与该 key 的消息相同的业务线程上执行任意任务（如会话关闭清理），保证顺序。
+     *
+     * @throws RejectedExecutionException 业务线程队列满或已关闭
+     */
     public void execute(long key, Runnable task) {
         executor.execute(key, task);
     }

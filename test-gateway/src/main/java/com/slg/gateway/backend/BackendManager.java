@@ -9,7 +9,7 @@ import com.slg.common.net.internal.InternalClient;
 import com.slg.common.net.internal.InternalPacket;
 import com.slg.common.net.internal.PacketKind;
 import com.slg.common.proto.SessionClosed;
-import com.slg.common.util.NamedThreadFactory;
+import com.slg.common.thread.NamedThreadFactory;
 import com.slg.gateway.session.GatewaySession;
 import com.slg.gateway.session.SessionManager;
 import io.netty.channel.EventLoopGroup;

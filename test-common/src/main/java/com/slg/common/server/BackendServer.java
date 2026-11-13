@@ -4,12 +4,15 @@ import com.slg.common.config.ServerConfig;
 import com.slg.common.discovery.ServiceDiscovery;
 import com.slg.common.discovery.ServiceInstance;
 import com.slg.common.discovery.ServiceType;
-import com.slg.common.dispatch.KeyedExecutor;
+
 import com.slg.common.dispatch.MessageDispatcher;
 import com.slg.common.net.internal.InternalServer;
 import com.slg.common.net.internal.SessionListener;
+import com.slg.common.thread.SlotExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 有状态后端服（world/game）的通用启动骨架：
@@ -22,7 +25,8 @@ import org.slf4j.LoggerFactory;
  * server.host=0.0.0.0          # 监听地址
  * server.port=9101
  * server.ioThreads=0           # 0 = Netty 默认（CPU*2）
- * server.bizThreads=0          # 0 = CPU 核数
+ * server.bizThreads=0          # 0 = CPU 核数，实际线程数向上取整为 2 的幂
+ * server.bizQueueCapacity=3000 # 每个业务线程的队列上限，满了回 SERVER_BUSY
  * server.readerIdleSeconds=60  # 超过该时间未收到对端任何包则断开
  * </pre>
  */
@@ -31,7 +35,7 @@ public final class BackendServer {
     private static final Logger log = LoggerFactory.getLogger(BackendServer.class);
 
     private final ServiceInstance self;
-    private final KeyedExecutor executor;
+    private final SlotExecutor executor;
     private final MessageDispatcher dispatcher;
     private final InternalServer server;
     private final ServiceDiscovery discovery;
@@ -43,7 +47,12 @@ public final class BackendServer {
         int port = config.getInt("server.port", 0);
         this.self = new ServiceInstance(type, nodeId, host, port);
         this.discovery = discovery;
-        this.executor = new KeyedExecutor(self.key() + "-biz", config.getInt("server.bizThreads", 0));
+        int bizThreads = config.getInt("server.bizThreads", 0);
+        if (bizThreads <= 0) {
+            bizThreads = Runtime.getRuntime().availableProcessors();
+        }
+        this.executor = new SlotExecutor(self.key() + "-biz", bizThreads,
+                config.getInt("server.bizQueueCapacity", 3000));
         this.dispatcher = new MessageDispatcher(executor);
         this.server = new InternalServer(self, dispatcher, sessionListener,
                 config.getInt("server.ioThreads", 0), config.getInt("server.readerIdleSeconds", 60));
@@ -62,14 +71,18 @@ public final class BackendServer {
     }
 
     public void start() throws InterruptedException {
+        executor.start();
         server.start();
         discovery.register(self);
         log.info("[{}] started, bizThreads={}", self.key(), executor.size());
     }
 
+    /** 先从注册中心摘除，再停网络，最后等业务线程执行完已接收的消息。 */
     public void stop() {
-        server.stop();
-        executor.shutdown();
         discovery.close();
+        server.stop();
+        if (!executor.shutdown(10, TimeUnit.SECONDS)) {
+            log.warn("[{}] biz executor did not finish in 10s, pending={}", self.key(), executor.pendingTasks());
+        }
     }
 }

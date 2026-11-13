@@ -10,4 +10,5 @@ public final class ErrorCodes {
     public static final int BAD_REQUEST = 3;
     public static final int SERVER_ERROR = 4;
     public static final int NO_HANDLER = 5;
+    public static final int SERVER_BUSY = 6;
 }

@@ -3,11 +3,12 @@ package com.slg.common.net.internal;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.slg.common.discovery.ServiceInstance;
 import com.slg.common.dispatch.MessageDispatcher;
+
 import com.slg.common.proto.HandshakeReq;
 import com.slg.common.proto.HandshakeResp;
 import com.slg.common.proto.InternalHeartbeat;
 import com.slg.common.proto.SessionClosed;
-import com.slg.common.util.NamedThreadFactory;
+import com.slg.common.thread.NamedThreadFactory;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
@@ -30,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -157,7 +159,12 @@ public final class InternalServer {
                 case ControlMsgIds.SESSION_CLOSED: {
                     SessionClosed sc = SessionClosed.parseFrom(p.body());
                     long key = sc.getPlayerId() != 0 ? sc.getPlayerId() : sc.getSessionId();
-                    dispatcher.execute(key, () -> sessionListener.onSessionClosed(sc.getSessionId(), sc.getPlayerId()));
+                    try {
+                        dispatcher.execute(key, () -> sessionListener.onSessionClosed(sc.getSessionId(), sc.getPlayerId()));
+                    } catch (RejectedExecutionException e) {
+                        log.error("[{}] session close cleanup rejected, session={} player={}: {}",
+                                self.key(), sc.getSessionId(), sc.getPlayerId(), e.getMessage());
+                    }
                     break;
                 }
                 default:

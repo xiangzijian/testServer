@@ -1,7 +1,7 @@
 package com.slg.gateway.net;
 
 import com.slg.common.net.client.ClientCodec;
-import com.slg.common.util.NamedThreadFactory;
+import com.slg.common.thread.NamedThreadFactory;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;

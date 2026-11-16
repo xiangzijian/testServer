@@ -5,7 +5,7 @@ import com.google.protobuf.Message;
 import com.google.protobuf.Parser;
 import com.slg.common.msg.ErrorCodes;
 import com.slg.common.net.internal.InternalPacket;
-import com.slg.common.thread.SlotExecutor;
+import com.slg.common.thread.SerialExecutor;
 import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,7 +26,7 @@ public final class MessageDispatcher {
     private static final long SLOW_HANDLER_NANOS = 20_000_000L;
 
     private final Map<Integer, Registration<?>> handlers = new ConcurrentHashMap<>();
-    private final SlotExecutor executor;
+    private final SerialExecutor executor;
 
     private record Registration<T extends Message>(Parser<T> parser, MessageHandler<T> handler) {
         void invoke(HandlerContext ctx, byte[] body) throws Exception {
@@ -41,9 +41,9 @@ public final class MessageDispatcher {
         }
     }
 
-    public MessageDispatcher(SlotExecutor executor) {
+    public MessageDispatcher(SerialExecutor executor) {
         this.executor = executor;
-        executor.start();
+
     }
 
     public <T extends Message> MessageDispatcher register(int msgId, Parser<T> parser, MessageHandler<T> handler) {

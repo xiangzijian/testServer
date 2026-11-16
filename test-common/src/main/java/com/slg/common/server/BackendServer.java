@@ -8,7 +8,7 @@ import com.slg.common.discovery.ServiceType;
 import com.slg.common.dispatch.MessageDispatcher;
 import com.slg.common.net.internal.InternalServer;
 import com.slg.common.net.internal.SessionListener;
-import com.slg.common.thread.SlotExecutor;
+import com.slg.common.thread.SerialExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,8 +25,8 @@ import java.util.concurrent.TimeUnit;
  * server.host=0.0.0.0          # 监听地址
  * server.port=9101
  * server.ioThreads=0           # 0 = Netty 默认（CPU*2）
- * server.bizThreads=0          # 0 = CPU 核数，实际线程数向上取整为 2 的幂
- * server.bizQueueCapacity=3000 # 每个业务线程的队列上限，满了回 SERVER_BUSY
+ * server.bizThreads=0          # 0 = CPU 核数
+ * server.bizQueueCapacity=3000 # 单个玩家（或会话）的排队上限，满了回 SERVER_BUSY
  * server.readerIdleSeconds=60  # 超过该时间未收到对端任何包则断开
  * </pre>
  */
@@ -35,7 +35,7 @@ public final class BackendServer {
     private static final Logger log = LoggerFactory.getLogger(BackendServer.class);
 
     private final ServiceInstance self;
-    private final SlotExecutor executor;
+    private final SerialExecutor executor;
     private final MessageDispatcher dispatcher;
     private final InternalServer server;
     private final ServiceDiscovery discovery;
@@ -51,7 +51,7 @@ public final class BackendServer {
         if (bizThreads <= 0) {
             bizThreads = Runtime.getRuntime().availableProcessors();
         }
-        this.executor = new SlotExecutor(self.key() + "-biz", bizThreads,
+        this.executor = new SerialExecutor(self.key() + "-biz", bizThreads,
                 config.getInt("server.bizQueueCapacity", 3000));
         this.dispatcher = new MessageDispatcher(executor);
         this.server = new InternalServer(self, dispatcher, sessionListener,

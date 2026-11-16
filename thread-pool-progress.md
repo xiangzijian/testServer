@@ -1,4 +1,4 @@
-# 线程管理 / 线程池 建设进度
+﻿# 线程管理 / 线程池 建设进度
 
 > 本文件记录线程池模块的目标、方案和进度。每完成一步或方案有变化时更新。
 > 代码位置：`test-common/src/main/java/com/slg/common/thread/`
@@ -29,9 +29,10 @@
 ```
 ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 │
-├── SlotExecutor（槽位执行器：N 个 Worker 线程，id → 固定槽位）
-│     ├── 普通任务 execute(id, task)                 → 串行业务线程池
-│     └── 可替换任务 executeUnique(id, key, task)    → 唯一性线程池
+├── MailboxExecutorSupport（邮箱模型公共部分：线程池、邮箱注册表、状态、全局计数、回收、关闭）
+│     ├── SerialExecutor        普通任务 execute(id, task)，SerialMailbox 无锁（WIP 计数） → 业务线程池
+│     └── UniqueSerialExecutor  额外支持 execute(id, uniqueKey, task)，UniqueMailbox 加锁   → 落库 / 缓存刷新等
+│         （两者邮箱独立，同一 id 的任务互不保证顺序；唯一任务执行器不能修改个体内存状态）
 │
 └── PriorityAsyncExecutor（共享队列 + 多线程 + 分档优先级）
 ```
@@ -40,18 +41,18 @@ ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 
 ### 关键设计约定
 
-- 业务状态只在槽位线程上修改，其他线程只能投递任务；异步结果通过 `serial.execute(id, ...)` 回投到槽位线程。
-- 槽位线程数在启动时固定，向上取整到 2 的幂，**不支持运行中扩缩容**，否则 id 和线程的对应关系会变。
-- 路由规则：`(int) ((id * 0x9E3779B97F4A7C15L) >>> 32) & mask`。
+- 业务状态只在该 id 的任务里修改，其他地方只能投递任务；异步结果通过 `serial.execute(id, ...)` 回投。
+- 步骤 4b 起：同一个 id 的任务严格串行、按提交顺序执行，但**不保证固定在同一条线程**；不能用按线程存放的 `ThreadLocal` 保存个体状态。
+- （步骤 3、4 的槽位实现，留档）线程数向上取整到 2 的幂，路由规则 `(int) ((id * 0x9E3779B97F4A7C15L) >>> 32) & mask`。
 - 所有队列都必须有界；提交时用 `offer`，不用 `put`，避免阻塞 Netty IO 线程；队列满时抛 `RejectedExecutionException`。
 - 禁止使用 `CallerRunsPolicy`，否则提交任务的业务线程会自己去执行阻塞操作。
-- 任务异常在 Worker 循环里用 `try/catch Throwable` 捕获，线程不能死；`UncaughtExceptionHandler` 只做最后兜底。
+- 任务异常在任务包装层用 `try/catch Throwable` 捕获，线程不能死；`UncaughtExceptionHandler` 只做最后兜底。
 
 ### 唯一性任务的规则
 
-- 被替换的任务**保留原来的排队位置**，只替换任务内容，防止高频更新的 key 被饿死。
+- 被替换的旧任务从队列删除，新任务**排到队尾**（开发者决定：唯一任务多为快照或时效性数据，应按时间顺序排列；代价是积压时高频更新的 key 可能迟迟轮不到）。
 - 正在执行的任务不参与替换，再提交同一个 key 时正常排队。
-- `uniqueKey` 的作用范围限定在单个 routeId 内，接口为 `executeUnique(routeId, uniqueKey, task)`。
+- `uniqueKey` 的作用范围限定在单个 id 内，接口为 `execute(id, uniqueKey, task)`；邮箱模型下每个 id 一个 Mailbox，key 天然只在本 id 内生效。
 - 默认“最后提交的胜出”，可选 `merge(old, new)`。
 - 带返回结果的任务被替换时，它的 Future 必须有明确结局，不能永远不完成。
 - 关闭时必须把剩余任务执行完（落库任务不能丢）。
@@ -84,12 +85,142 @@ ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 | 1 | 完善 `NamedThreadFactory`，做异常去向的实验（`execute` / `submit`） | ✅ |
 | 2 | 并发基础（`volatile` / `Atomic` / 并发容器） | ⏭ 已掌握，跳过 |
 | 3 | `Worker` + `SlotExecutor`（串行池）+ 优雅关闭 + 替换 `KeyedExecutor` | ✅ |
-| 4 | `SlotExecutor` 增加唯一任务 `execute(id, uniqueKey, task)`（在 Worker 队列层实现，普通任务与唯一任务共用一个队列） | ⏳ 当前步骤，设计已给出，由开发者实现 |
+| 4 | `SlotExecutor` 增加唯一任务 `execute(id, uniqueKey, task)`（在 Worker 队列层实现，普通任务与唯一任务共用一个队列） | ✅ 完成（2026-11-16，17 个测试通过） |
+| 4b | `SlotExecutor` 内部改为邮箱模型（每个 id 一个 Mailbox，注册到共享线程池执行），对外接口基本不变 | ✅ 完成（2026-11-16，AI 实现，23 个测试连续 5 轮通过） |
+| 4c | 拆分为 `SerialExecutor`（普通，无锁邮箱）和 `UniqueSerialExecutor`（唯一任务，加锁邮箱），公共部分抽到 `MailboxExecutorSupport` | ✅ 完成（2026-11-16，AI 实现，40 个测试连续 5 轮通过） |
 | 5 | `PriorityAsyncExecutor`（异步优先级池）+ 异步结果回投 | ⬜ |
 | 6 | 定时器（先用 `ScheduledExecutorService`，M1 阶段换成分层时间轮） | ⬜ |
 | 7 | `ThreadManage` 统一管理 + 监控指标 | ⬜ |
 
-### 当前步骤（步骤 4）：在 `SlotExecutor` 的队列层实现唯一任务
+### 当前步骤（步骤 4b）：`SlotExecutor` 内部改为邮箱模型
+
+**为什么改**：哈希槽位模型下，一个 id 的慢任务会卡住同槽位的所有 id（队头阻塞），热点 id 所在槽位排长队时其他线程却空闲；唯一任务需要全局 map 且 key 必须带 routeId；锁的粒度是整个槽位。邮箱模型让每个逻辑个体（玩家、城池、联盟等）拥有自己的任务队列，有任务时才把队列交给共享线程池执行，同一个 id 依然严格串行。
+
+**放弃的方案**：底层换成 Netty `DefaultEventExecutor`。它的价值在于“一个执行器绑定一条线程”，邮箱模型不需要绑定线程；且它的队列同样有锁（`LinkedBlockingQueue`）、最小容量 16、无法从队列中间删除任务。
+
+#### 1. 组成
+
+| 组件 | 职责 |
+| --- | --- |
+| `SlotExecutor`（类名暂不改，避免改调用方） | 对外入口：持有共享线程池、邮箱注册表、状态和全局计数；负责提交、关闭、回收空闲邮箱 |
+| `Mailbox`（包内可见，`implements Runnable`） | 单个 id 的任务队列：`ArrayDeque<MailTask>` + 唯一任务索引 `HashMap<Long, MailTask>` + `scheduled` 标志 + 一把锁；被线程池执行时按批次运行自己的任务 |
+| `MailTask`（取代 `SlotTask`） | 包装用户任务：`id`、`uniqueKey`（可为 null）、`Runnable`；负责 `catch Throwable`、清中断标志、慢任务日志 |
+| 共享线程池 | 固定 N 条线程的 `ThreadPoolExecutor`，`NamedThreadFactory(name, false)` 命名，非守护 |
+| 删除 | `Worker.java`、`SlotTask.java`、`UniqueKey` |
+
+线程池的队列放的是 **Mailbox 而不是业务任务**，每个邮箱同一时刻最多在池队列里出现一次，所以池队列长度不超过活跃邮箱数，用无界 `LinkedBlockingQueue` 可以接受；真正的容量限制在邮箱上。
+
+#### 2. 提交流程 `execute(id, uniqueKey, task)`
+
+1. 读锁内检查状态，不是 RUNNING 就拒绝（读写锁的作用见第 5 点）
+2. `mailbox = mailboxes.computeIfAbsent(id, Mailbox::new)`
+3. 进入该邮箱的锁：
+   - 邮箱已被回收（`retired == true`）：释放锁，回到第 2 步重新取（见第 4 点）
+   - 唯一任务先查 `old = uniqueIndex.get(uniqueKey)`。索引和队列在同一把锁下维护，**索引里有就一定还在队列里**（取出时会同时删索引），所以替换不需要额外容量
+   - `old == null` 且（队列长度达到单邮箱容量，或全局待执行数达到上限）：拒绝，此时什么都没改动
+   - `old != null`：`queue.remove(old)`，合并计数 +1，全局待执行数不变
+   - 新任务加到队尾；唯一任务写入 `uniqueIndex`；没有替换时全局待执行数 +1
+   - `scheduled` 为 false 时置为 true，并记下“需要调度”
+4. 释放邮箱锁后，如果需要调度就 `pool.execute(mailbox)`
+5. 拒绝时抛 `RejectedExecutionException`，信息带 name、id、邮箱长度、全局待执行数、running
+
+邮箱的锁只被“提交到这个 id 的线程”和“正在执行这个邮箱的线程”争用，几乎没有竞争。
+
+#### 3. 执行流程 `Mailbox.run()`
+
+```
+for i in 0 until BATCH(16):
+    加锁：task = queue.poll()
+          task 为空：scheduled = false，解锁，返回
+          唯一任务：uniqueIndex.remove(uniqueKey, task)
+    解锁
+    CURRENT.set(this)；task.run()（包装层兜底异常）；CURRENT.remove()
+    全局待执行数 -1
+批次跑满：加锁，队列为空则 scheduled = false，否则保持 true；解锁后若仍有任务，pool.execute(this) 重新排到池队列末尾
+```
+
+- `scheduled` 只在邮箱锁内读写，不存在“清标志前刚入队的任务没人调度”的问题
+- 每批最多 16 个任务后让出线程，忙碌的个体不会长期霸占线程（公平性）
+- 锁保证了前后两批在不同线程上执行时，状态修改对下一批可见
+- `CURRENT` 是 `ThreadLocal<Mailbox>`，只在任务执行期间有值，用于 `inSlot(id)` / `assertInSlot(id)`：判断当前是否正在执行这个 executor 中该 id 的任务
+
+#### 4. 邮箱回收
+
+- 邮箱为空不立即删除（同一个玩家的任务很频繁，反复创建浪费）
+- 后台每 60 秒扫描一次：在邮箱锁内，如果队列为空、`scheduled == false`、空闲超过 5 分钟，就把 `retired` 置为 true，然后 `mailboxes.remove(id, mailbox)`
+- 提交方可能拿到了即将被回收的邮箱引用，所以第 2 步遇到 `retired` 要重新 `computeIfAbsent`，保证任务不会投进已回收的邮箱
+- 扫描暂时用 `SlotExecutor` 内部的单线程 `ScheduledExecutorService`（守护线程），第 6 步完成后改由统一定时器触发
+
+#### 5. 关闭 `shutdown(timeout, unit)`
+
+1. 写锁内把状态改为 SHUTDOWN。读写锁保证：所有已通过状态检查的提交都已完成入队和调度，之后的提交全部拒绝；提交方之间只共享读锁，互不阻塞
+2. 用同一个 deadline 等待全局待执行数降到 0（每 10ms 检查一次即可，只在关闭时发生）
+3. `pool.shutdown()`，再 `pool.awaitTermination(剩余时间)`；停止回收扫描线程
+4. 超时返回 false 并记录剩余任务数；被中断时恢复中断标志并返回 false
+
+注意：关闭后，正在执行的任务再向其他 id 投递的后续任务会被拒绝。需要保证执行的收尾工作（如全量落库）要在调用 `shutdown` 之前投递，或者交给 DB 池处理（对应“关闭顺序”第 3、4 步）。
+
+#### 6. 唯一任务语义（与步骤 4 相同）
+
+- 等待中的旧任务被删除，新任务排到队尾
+- 已被取出执行的任务不受影响
+- 队列满时同 key 替换仍然成功
+- 契约：提交成功的任务一定会被执行，或者被同 key 的新任务取代；被拒绝的任务一定没有执行，且不影响已有任务
+- 因为索引只在单个邮箱内，key 不再需要带 routeId，删除旧任务也只遍历这个 id 自己的短队列
+
+#### 7. 对外接口变化
+
+| 接口 | 变化 |
+| --- | --- |
+| 构造 `(name, threads, queueCapacity)` | `queueCapacity` 改为**单个邮箱**的容量；新增可选的全局待执行上限（默认 `queueCapacity × threads × 16` 之类的值，接入时在配置里给出）；线程数不再取整到 2 的幂 |
+| `execute` 两个重载、`start`、`shutdown`、`name`、`mergedCount`、`pendingTasks` | 不变 |
+| `inSlot(id)` / `assertInSlot(id)` | 语义改为“当前正在执行该 id 的任务”，方法名暂不改 |
+| `size()` | 返回线程数（`BackendServer` 启动日志在用） |
+| `slotOf(id)` | 删除 |
+| `queueSize(int slot)` | 改为 `queueSize(long id)` |
+| 新增 `mailboxCount()` | 当前邮箱数量，供第 7 步监控使用 |
+
+`BackendServer` 和 `MessageDispatcher` 只用到 `execute`、`start`、`shutdown`、`size`、`pendingTasks`，不需要改。
+
+#### 8. 测试调整
+
+`SlotExecutorTest`
+- 删除 `threadCountRoundsUpToPowerOfTwo`
+- `sameIdAlwaysOnSameThreadAndIdsCoverAllSlots` 改为：同一个 id 的任务从不并发执行（用计数器检测同时进入的个数）且按顺序执行
+- `failingTaskDoesNotKillSlotThread`：线程名断言改为以 `fail-` 开头，后续任务仍能执行
+- `rejectsWhenNotStartedOrQueueFull`：卡住 id 1 后，id 1 再提交 1 个成功、第 2 个被拒绝；**新增断言**：此时 id 2 仍然可以提交并执行
+- `inSlotOnlyOnOwningThread`：不再需要找不同槽位的 id，任意另一个 id 即可
+- 其余用例不变
+
+`SlotExecutorUniqueTest`
+- 用 1 条线程的执行器，卡住线程的任务就能让所有邮箱排队，现有 8 个场景基本不用改
+
+新增 `SlotExecutorMailboxTest`
+1. 队头阻塞消除：2 条线程，id A 的任务卡住时，id B 的任务照常执行完
+2. 公平性：1 条线程，先给 id A 提交 1000 个任务，再给 id B 提交 1 个，B 在 A 全部执行完之前就执行了
+3. 线程切换后的可见性：同一个 id 交替穿插其他 id 的任务，用普通字段（非 volatile）累加 10 万次，结果正确
+4. 回收竞态：把空闲阈值调到很小，多线程不停提交的同时反复触发回收，成功提交数 == 执行数
+5. 全局上限：达到全局待执行上限后，任何 id 的提交都被拒绝
+6. 关闭：已接收的任务全部执行，之后的提交被拒绝，`mailboxCount` 之后不再增长
+
+全部通过后连续跑 5 轮。
+
+#### 9. 实施顺序
+
+1. `MailTask`（从 `SlotTask` 和 `Worker.runTask` 的内容迁移）
+2. `Mailbox`：提交、执行、唯一任务、回收标记
+3. `SlotExecutor` 内部替换：线程池、注册表、读写锁、全局计数、关闭、回收扫描
+4. 删除 `Worker`、`SlotTask`
+5. 调整原有测试、新增 `SlotExecutorMailboxTest`，跑 5 轮
+6. 更新本文档（第二节架构、待办、Review 记录）
+
+#### 10. 之后的优化方向（压测证明有瓶颈再做）
+
+- 邮箱锁换成无锁的“MPSC 队列 + CAS 调度标志”（唯一任务届时改为作废标记）
+- 读写锁换成 `LongAdder` 统计“正在提交的线程数”，关闭时先改状态再等计数归零
+- 线程池换成 `ForkJoinPool`（`asyncMode = true`）获得工作窃取
+
+### 步骤 4（已完成，留档）：在 `SlotExecutor` 的队列层实现唯一任务
 
 **设计调整（2026-11-13）**：最初的设计是“一种队列一个实例”，另外包一层 `UniqueSlotExecutor`。开发者提议改成**一个 Executor、一种队列同时支持普通任务和唯一任务**，采纳。理由：
 - 方案 A 和方案 B 的区别在于“这个池怎么用”，而不在于“这个池有没有去重能力”。同一个类，业务池实例上用唯一任务就是方案 B（可以修改玩家状态），落库池实例上用就是方案 A（只处理快照）
@@ -132,17 +263,20 @@ ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 - [x] 普通任务的 `uniqueKey` 为 null 时 NPE（第二版已修：先判断是否为 null）
 - [x] `uniqueMap` 只在“已存在”时才 `put`（第三版已修：每个唯一任务都会 put）
 - [x] 任务执行后没有从 map 里删除（第三版已加删除，但写法有问题，见下）
-- [ ] 第三版：`runLoop` 中对普通任务执行了 `uniqueMap.remove(null)`，抛 NPE，并且这个异常不在 `runTask` 的 try 里，**会让槽位线程直接退出**（测试已复现）
-- [ ] 第三版：“检查 `task == map.get(key)`”和“`map.remove(key)`”是两步操作，中间生产者 put 了新任务的话，新任务的映射会被删掉，之后新任务被当成旧任务跳过，**最新快照丢失**。改为 `if (key != null && !uniqueMap.remove(key, task)) continue;`，原子地完成检查和删除，同时解决上一条 NPE
-- [ ] 第三版：`offer` 中先 `put` 后 `queue.offer`。旧任务已被取进 batch 而且队列满时，新任务被拒，旧任务又因为“不是 map 里的最新版本”被跳过，两个都没执行。改为 offer 成功后再 put
-- [ ] 被跳过的旧任务应计入 `mergedCount`；Worker 类注释的约定改为“offer 返回 true 的任务一定会被执行，或者被同 key 的新任务取代”
-- 说明：Worker 跳过“不是 map 里最新版本”的任务以后，`queue.remove(old)` 已经不是保证正确性所必需的，作用只是及时释放队列容量
-- [ ] Worker 退出时顺带 `uniqueMap.clear()`
+- [x] 第三版：普通任务执行 `uniqueMap.remove(null)` 抛 NPE（第四版已修：`runTask` 中只对唯一任务调用 remove）
+- [x] 第三版：检查和删除分两步，会丢最新快照（第四版已修：改用 `uniqueMap.remove(key, task)`）
+- [x] 第五版：`offer` 返回值已修正，`SlotExecutorTest` 9 个全部通过；put 放在入队成功之后
+- [x] 第五版：先 `queue.offer(new)` 再删旧任务，队列满时即使有同 key 的旧任务也会直接拒绝（不出错，但积压时最需要合并的场景反而合并不了）；改为先 `remove(old)` 再 offer。另外用局部变量 `old` 只查一次 map
+- [ ] ~~第四版：`offer` 的返回值反了~~（已修），原描述：入队成功返回 false（调用方收到拒绝，但任务照样执行）、入队失败返回 true（任务没入队却报告已接收）；唯一任务的处理只在入队失败的分支里才执行。`SlotExecutorTest` 9 个里 7 个失败。正确顺序：检查 running → 普通任务直接 offer → 唯一任务先 `remove(old)` 腾位置 → `queue.offer(task)`，失败返回 false → 成功后 `put`（完整代码见 2026-11-16 review）
+- [x] 被跳过的旧任务应计入 `mergedCount`；Worker 类注释的约定改为“offer 返回 true 的任务一定会被执行，或者被同 key 的新任务取代”
+- 说明（第七版修订）：旧任务在提交时直接从队列删除，Worker 不再跳过任务，取走的任务一律执行，只调用 `uniqueMap.remove(key, task)` 清理登记；`offer` 必须先 put 再入队，入队失败时 `remove(key, task)` 撤销。原因：Worker 不持锁，若入队后再 put，Worker 可能先取走新任务，导致最新版本被误判为过期而跳过（并发测试复现：最后执行的是 v499 而不是 v500）
+- [x] Worker 退出时顺带 `uniqueMap.clear()`
 - [x] 在检查 `running` 之前就删掉了旧任务（第二版已修：先检查 running）
 - [x] 排到队尾还是保留位置：开发者决定排到队尾（见上面的“语义”）
-- [ ] map 的 key 只用了 uniqueKey，没有带 routeId，同一个槽位上不同玩家的同名 key 会被误合并；`uniqueKey` 的类型建议从 `Long` 改为 `Object`
-- [ ] 删除未使用的 `SlotQueue.java`、`CoalescingSlotQueue.java`（旧设计遗留，而且没有合并逻辑）
-- [ ] 还没有 `mergedCount()` 和唯一任务的测试
+- [x] map 的 key 只用了 uniqueKey，没有带 routeId，同一个槽位上不同玩家的同名 key 会被误合并（第四版改成了 `String`，但仍然没有和 routeId 组合）；用 `record Key(long routeId, Object uniqueKey)`
+- [x] 删除未使用的 `SlotQueue.java`（`CoalescingSlotQueue.java` 已删除）
+- [x] `mergedCount()`（Worker 用 LongAdder 计数，SlotExecutor 汇总）
+- [x] 唯一任务的正式验收测试（`SlotExecutorUniqueTest` 8 个 + 原有 9 个）
 
 **4. 验收测试（加在 `SlotExecutorTest`，或新建 `SlotExecutorUniqueTest`）**
 1. 等待中被替换：先用 latch 卡住槽位，再对同一个 key 提交 v1 到 v100，放行后这个 key 只执行一次，执行的是 v100
@@ -255,7 +389,10 @@ ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 
 - [x] 唯一性任务要不要直接修改玩家状态？**最初决定方案 A**（单独建池、只处理快照）；之后调整为：唯一任务作为 `SlotExecutor` 本身的能力，在业务池实例上使用就是方案 B，在落库池实例上使用就是方案 A，由使用方选择
 - [ ] `ThreadManage` 用静态单例，还是交给 Spring 管理？
-- [ ] 串行池最终是否升级成 Actor 邮箱模型（设计文档 6.2 节）？
+- [x] 串行池最终是否升级成 Actor 邮箱模型？**2026-11-16 决定升级**（步骤 4b）；曾考虑的 Netty `DefaultEventExecutor` 方案放弃，理由见步骤 4b
+- [x] 步骤 4b 由谁实现？由 AI 按方案实现
+- [x] `MessageDispatcher` 用 `playerId != 0 ? playerId : sessionId` 作为邮箱 id，两者共用 id 空间：**决定不处理**。业务分发不使用唯一任务，碰撞的唯一后果是两个邮箱被强制串行；sessionId 是网关的小计数值，playerId 是全局 ID，实际几乎不会相等
+- [ ] 全局待执行上限的默认值，以及邮箱空闲回收阈值（暂定 5 分钟）是否合适？
 
 ---
 
@@ -275,3 +412,10 @@ ThreadManage（创建 / 登记 / 监控 / 有序关闭）
 | 2026-11-13 | 4 | 第一版：`SlotExecutor.execute(id, uniqueKey, task)` 接口方向正确，但普通任务 NPE（7 个原有测试失败）、map 从未写入、用“删除后重新入队”替换（丢失排队位置且是 O(n)）、关闭时会丢旧任务、key 没带 routeId；已给出原地替换的骨架 |
 | 2026-11-13 | 4 | 第二版：NPE 和 running 检查顺序已修；开发者决定替换后排到队尾（已记录积压时可能执行不到的代价）。还剩：map 只在已存在时才 put（合并永远不会发生）、执行后没有从 map 删除（内存泄漏）、key 没带 routeId（不同玩家互相覆盖，会丢数据） |
 | 2026-11-13 | 4 | 第三版：map 的 put 和 remove 都补上了；Worker 跳过“不是 map 里最新版本”的任务，思路很好（解决了新旧任务各执行一次的问题）。但普通任务调用 `remove(null)` 抛 NPE，会让槽位线程退出；检查和删除分两步，会丢最新快照；先 put 后 offer 在队列满时会丢旧任务；key 仍然没带 routeId |
+| 2026-11-16 | 4 | 第四版：`runTask` 改用 `remove(key, task)`，NPE 和丢失最新快照的问题已解决；但 `offer` 返回值写反（7 个原有测试失败），唯一任务的处理放在了入队失败的分支里；key 仍然没带 routeId。已给出 `offer` 的完整写法，建议先补唯一任务的测试再继续改 |
+| 2026-11-16 | 4 | 第五版：`offer` 返回值已修正，原有 9 个测试全部通过，并发逻辑正确。还剩：key 没带 routeId（唯一会丢数据的问题）、队列满时无法替换（建议先删后入队）、合并计数、类注释、退出时清空 map、删除 `SlotQueue.java`、补唯一任务测试 |
+| 2026-11-16 | 4 | 第六版（AI 按要求修改 `Worker.offer`）：Worker 内部 key 改为 `record UniqueKey(routeId, uniqueKey)`；offer 改为先 `remove(old)` 腾容量、再 offer、成功后才 put；跳过的旧任务计入 `mergedCount`；退出时 `uniqueMap.clear()`；类注释写明 offer 约定。开发者同时把 `execute` 的 uniqueKey 改成 `Long` 并拼成 `id-key` 字符串，和 Worker 的 routeId 组合重复但无害。临时测试验证（同槽不同玩家不合并、队列满时替换、8 线程并发下 提交数 == 执行数 + 合并数）与原有 9 个测试共 12 个全部通过，临时测试已删除。剩余：正式唯一任务测试 |
+| 2026-11-16 | 4 | 第七版（AI 编写 `SlotExecutorUniqueTest`）：8 个场景测试。并发测试发现第六版的竞态：先入队后 put，Worker 取走新任务时 map 还没登记，最新版本被当作过期跳过。修复为先 put 再入队、失败撤销，Worker 不再跳过任务、只清理登记，`mergedCount` 只在提交时从队列删掉旧任务时计数。开发者完成了 uniqueKey 改为 `Long`（`SlotTask`、`UniqueKey`），去掉了字符串拼接。17 个测试连续多轮通过，步骤 4 完成 |
+| 2026-11-16 | 4b | 方案调整（仅修改文档）：讨论了换成 Netty `DefaultEventExecutor` 的方案（已查证其队列为 `LinkedBlockingQueue`、最小容量 16），之后开发者提出“每个个体一个任务队列，注册到共享线程池执行”，确定改为邮箱模型。方案见步骤 4b：Mailbox 内锁 + 唯一任务索引、批次执行保证公平、空闲回收与 retired 重试、读写锁 + 全局待执行数实现关闭、接口变化与测试调整 |
+| 2026-11-16 | 4b | 实现完成（AI）：新增 `MailTask`（用类而非 record，按引用删除）、`Mailbox`（邮箱锁内维护队列、唯一任务索引、scheduled、retired；每批 16 个）；重写 `SlotExecutor`（`ThreadPoolExecutor` + 邮箱注册表 + 读写锁 + 全局待执行数 + 每 60 秒回收空闲邮箱，新增 5 参数构造器、`mailboxCount()`、`queueSize(long id)`，删除 `slotOf`）；删除 `Worker`、`SlotTask`。`SlotExecutorTest` 按方案调整，唯一任务 8 个测试未改动，新增 `SlotExecutorMailboxTest` 6 个；共 23 个测试连续 5 轮通过，gateway、world、game 编译通过。`ThreadUtil.nextPowerOfTwo` 已无人使用，可删除 |
+| 2026-11-16 | 4c | 开发者提出按“是否带唯一任务”拆成两个执行器（AI 实现）：`MailboxExecutorSupport<M, T>` 放公共部分；`SerialExecutor` + `SerialMailbox` 用 WIP 计数实现无锁调度（先入队后计数，0→1 的提交方负责调度，执行方减到 0 才退出；回收为 CAS 0→RETIRED，提交方入队后发现已回收则按引用删掉自己的任务并重试，删不掉说明已被执行）；`UniqueSerialExecutor` + `UniqueMailbox` 保留加锁实现和 `mergedCount`；`AbstractMailbox` 放当前邮箱标记和任务包装。`BackendServer`、`MessageDispatcher` 改用 `SerialExecutor`。测试改为抽象契约测试 `MailboxExecutorContractTest`（15 个），两个执行器各跑一遍；`SerialExecutorTest` 另加同 id 多生产者、回收竞态 2 个压力测试；`UniqueSerialExecutorTest` 保留唯一任务 8 个。共 40 个测试连续 5 轮通过，全量构建通过。读写锁和全局 `pending` 计数仍是全局热点，留作后续优化 |

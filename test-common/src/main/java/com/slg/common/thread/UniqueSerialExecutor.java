@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * 按 id 串行、支持唯一任务的执行器，邮箱加锁实现。
  * <p>和 {@link SerialExecutor} 是两套独立的邮箱：同一个 id 在两个执行器中的任务互不保证顺序，可能同时执行。
- * 所以这里的任务只能处理快照或外部副作用（落库、刷新缓存、推送），不能修改个体的内存状态。
+ * 所以这里的任务只能处理快照或外部副作用（落库、刷新缓存、推送序列化消息），不能修改个体的内存状态。
  */
 public final class UniqueSerialExecutor extends MailboxExecutorSupport<UniqueMailbox, MailTask> {
 

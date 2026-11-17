@@ -19,7 +19,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * 约定：execute 正常返回的任务一定会被执行（唯一任务也可能被同 key 的新任务取代）；抛出拒绝异常的任务一定没有被执行。
  * 不支持 shutdown 后重新 start。
  */
-public abstract class MailboxExecutorSupport<M extends AbstractMailbox, T> {
+public abstract class MailboxExecutorSupport<M extends AbstractMailbox, T> implements ManagedExecutor{
 
     private static final Logger log = LoggerFactory.getLogger(MailboxExecutorSupport.class);
     static final long DEFAULT_IDLE_MILLIS = TimeUnit.MINUTES.toMillis(5);

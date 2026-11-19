@@ -58,7 +58,23 @@ public final class Db {
         }
     }
 
-    // update(sql, args...)、batchUpdate(sql, List<Object[]>)、queryForObject 写法相同
+    public int update(String sql, Object... args) {
+        long start = System.nanoTime();
+        try {
+            return jdbc.update(sql, args);
+        } finally {
+            checkSlow(sql, start);
+        }
+    }
+
+    public int[] batchUpdate(String sql, List<Object[]> batchArgs) {
+        long start = System.nanoTime();
+        try {
+            return jdbc.batchUpdate(sql, batchArgs);
+        } finally {
+            checkSlow("batch(" + batchArgs.size() + "):" + sql, start);
+        }
+    }
 
     public <T> T inTransaction(String label, TransactionCallback<T> action) {
         long start = System.nanoTime();

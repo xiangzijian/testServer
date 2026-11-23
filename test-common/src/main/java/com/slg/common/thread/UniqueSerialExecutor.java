@@ -32,10 +32,11 @@ public final class UniqueSerialExecutor extends MailboxExecutorSupport<UniqueMai
 
     /**
      * uniqueKey 不为 null 时为唯一任务：同一 id 下同 uniqueKey 还在排队的旧任务会被删除，新任务排到队尾。
+     * uniqueKey 按 equals/hashCode 比较，必须是不可变对象。
      *
      * @throws RejectedExecutionException 未启动、已关闭、该 id 的队列已满或全局待执行数达到上限
      */
-    public void execute(long id, Long uniqueKey, Runnable task) {
+    public void execute(long id, Object uniqueKey, Runnable task) {
         submit(id, new MailTask(id, uniqueKey, Objects.requireNonNull(task, "task")));
     }
 

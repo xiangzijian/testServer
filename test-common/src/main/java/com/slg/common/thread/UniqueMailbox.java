@@ -14,7 +14,7 @@ final class UniqueMailbox extends AbstractMailbox {
     private final ReentrantLock lock = new ReentrantLock();
     private final ArrayDeque<MailTask> queue = new ArrayDeque<>();
     /** 索引和队列在同一把锁下维护：索引中的任务一定还在队列里。 */
-    private final HashMap<Long, MailTask> uniqueIndex = new HashMap<>();
+    private final HashMap<Object, MailTask> uniqueIndex = new HashMap<>();
     private boolean scheduled;
     private boolean retired;
     private long lastActiveNanos = System.nanoTime();

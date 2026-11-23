@@ -112,6 +112,13 @@ public abstract class MailboxExecutorSupport<M extends AbstractMailbox, T> imple
     }
 
     /**
+     * 已启动且还没开始关闭，此时才能提交任务。
+     */
+    public final boolean isRunning() {
+        return state == State.RUNNING;
+    }
+
+    /**
      * 当前线程是否正在执行本执行器中该 id 的任务。
      */
     public final boolean inSlot(long id) {

@@ -7,10 +7,10 @@ package com.slg.common.thread;
 final class MailTask {
 
     final long id;
-    final Long uniqueKey;
+    final Object uniqueKey;
     final Runnable task;
 
-    MailTask(long id, Long uniqueKey, Runnable task) {
+    MailTask(long id, Object uniqueKey, Runnable task) {
         this.id = id;
         this.uniqueKey = uniqueKey;
         this.task = task;

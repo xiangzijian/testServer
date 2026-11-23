@@ -30,7 +30,7 @@ testServer/
 │           ├── net/client/      # 客户端帧：client.net.com.test.common.client.net.com.slg.common.ClientMessage、ClientCodec
 │           ├── net/internal/    # 内部协议：internal.net.com.test.common.internal.net.com.slg.common.InternalPacket、InternalCodec、InternalServer、InternalClient(自动重连)
 │           ├── dispatch/        # MessageDispatcher（msgId→handler）、MessageHandler、HandlerContext、KeyedExecutor
-│           ├── server/          # BackendServer：world/game 共用的启动骨架
+│           ├── server/          # BackendServer：world/game 共用的网络入口（业务线程由各 server 创建传入）
 │           └── util/
 ├── slg-gateway/                 # 网关
 │   └── com/slg/gateway/
@@ -191,7 +191,7 @@ RESULT: 7/7 ok -> PASS
 
 5. 重新 `bin\build.bat`，客户端按帧格式发送 `msgId=20011` 即可。
 
-新增一个号段（如 4xxxx 联盟服）：在 `ServiceType` 加枚举、`RouteTable.defaults()` 加 `range(40000, 49999, ServiceType.ALLIANCE)`、`BackendManager.BACKENDS` 加上该类型，并在 `gateway.properties` 配置 `discovery.alliance.nodes`；新服务本身仿照 `WorldServer` 用 `BackendServer` 启动即可。
+新增一个号段（如 4xxxx 联盟服）：在 `ServiceType` 加枚举、`RouteTable.defaults()` 加 `range(40000, 49999, ServiceType.ALLIANCE)`、`BackendManager.BACKENDS` 加上该类型，并在 `gateway.properties` 配置 `discovery.alliance.nodes`；新服务本身仿照 `WorldServer`：自己创建 `ThreadManage` 和业务执行器，把执行器和 `BackendServer` 分别注册到 BUSINESS、INGRESS 阶段。
 
 gateway 本地处理的消息（1xxxx）在 `ClientHandler.handleLocal` 中添加。
 

@@ -8,6 +8,7 @@ import com.slg.common.discovery.ServiceType;
 import com.slg.common.dispatch.MessageDispatcher;
 import com.slg.common.net.internal.InternalServer;
 import com.slg.common.net.internal.SessionListener;
+import com.slg.common.thread.ManagedExecutor;
 import com.slg.common.thread.SerialExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +16,9 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 有状态后端服（world/game）的通用启动骨架：
- * 配置 → 业务线程 → handler 注册表 → 内部 TCP 服务端 → 服务注册。
- * 具体服务只需要 {@link #dispatcher()} 注册 handler 后调用 {@link #start()}。
+ * 有状态后端服（world/game）的网络入口：handler 注册表 + 内部 TCP 服务端 + 服务注册。
+ * 不创建业务线程：业务执行器由 server 启动器创建并传入，和本对象一起注册到 ThreadManage，
+ * 本对象注册在 INGRESS 阶段，最后对外开放、最先摘除。
  *
  * <p>配置项：
  * <pre>
@@ -25,37 +26,44 @@ import java.util.concurrent.TimeUnit;
  * server.host=0.0.0.0          # 监听地址
  * server.port=9101
  * server.ioThreads=0           # 0 = Netty 默认（CPU*2）
- * server.bizThreads=0          # 0 = CPU 核数
+ * server.bizThreads=0          # 0 = CPU 核数，见 {@link #newBizExecutor}
  * server.bizQueueCapacity=3000 # 单个玩家（或会话）的排队上限，满了回 SERVER_BUSY
  * server.readerIdleSeconds=60  # 超过该时间未收到对端任何包则断开
  * </pre>
  */
-public final class BackendServer {
+public final class BackendServer implements ManagedExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(BackendServer.class);
 
     private final ServiceInstance self;
-    private final SerialExecutor executor;
     private final MessageDispatcher dispatcher;
     private final InternalServer server;
     private final ServiceDiscovery discovery;
 
     public BackendServer(ServiceType type, ServerConfig config, ServiceDiscovery discovery,
-                         SessionListener sessionListener) {
-        int nodeId = config.getInt("server.nodeId", 1);
-        String host = config.getString("server.host", "0.0.0.0");
-        int port = config.getInt("server.port", 0);
-        this.self = new ServiceInstance(type, nodeId, host, port);
+                         SessionListener sessionListener, SerialExecutor bizExecutor) {
+        this.self = selfOf(type, config);
         this.discovery = discovery;
+        this.dispatcher = new MessageDispatcher(bizExecutor);
+        this.server = new InternalServer(self, dispatcher, sessionListener,
+                config.getInt("server.ioThreads", 0), config.getInt("server.readerIdleSeconds", 60));
+    }
+
+    /**
+     * 按 server.bizThreads / server.bizQueueCapacity 创建业务执行器的默认做法；server 也可以自行创建。
+     */
+    public static SerialExecutor newBizExecutor(ServiceType type, ServerConfig config) {
         int bizThreads = config.getInt("server.bizThreads", 0);
         if (bizThreads <= 0) {
             bizThreads = Runtime.getRuntime().availableProcessors();
         }
-        this.executor = new SerialExecutor(self.key() + "-biz", bizThreads,
+        return new SerialExecutor(selfOf(type, config).key() + "-biz", bizThreads,
                 config.getInt("server.bizQueueCapacity", 3000));
-        this.dispatcher = new MessageDispatcher(executor);
-        this.server = new InternalServer(self, dispatcher, sessionListener,
-                config.getInt("server.ioThreads", 0), config.getInt("server.readerIdleSeconds", 60));
+    }
+
+    private static ServiceInstance selfOf(ServiceType type, ServerConfig config) {
+        return new ServiceInstance(type, config.getInt("server.nodeId", 1),
+                config.getString("server.host", "0.0.0.0"), config.getInt("server.port", 0));
     }
 
     public ServiceInstance self() {
@@ -70,19 +78,29 @@ public final class BackendServer {
         return server.boundPort();
     }
 
-    public void start() throws InterruptedException {
-        executor.start();
-        server.start();
-        discovery.register(self);
-        log.info("[{}] started, bizThreads={}", self.key(), executor.size());
+    @Override
+    public String name() {
+        return self.key() + "-ingress";
     }
 
-    /** 先从注册中心摘除，再停网络，最后等业务线程执行完已接收的消息。 */
-    public void stop() {
+    /** 先打开端口，再注册到服务发现。 */
+    @Override
+    public void start() {
+        try {
+            server.start();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while binding " + self, e);
+        }
+        discovery.register(self);
+        log.info("[{}] ingress started", self.key());
+    }
+
+    /** 先从注册中心摘除，再停网络；业务线程由 ThreadManage 在之后的阶段关闭。 */
+    @Override
+    public boolean shutdown(long timeout, TimeUnit unit) {
         discovery.close();
         server.stop();
-        if (!executor.shutdown(10, TimeUnit.SECONDS)) {
-            log.warn("[{}] biz executor did not finish in 10s, pending={}", self.key(), executor.pendingTasks());
-        }
+        return true;
     }
 }

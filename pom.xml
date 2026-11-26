@@ -27,7 +27,8 @@
         <!-- 设计文档要求 JDK 17 构建；本机只有更高版本 JDK 时可用 -Denforcer.skip=true 跳过（release=17 仍保证 API 不越界） -->
         <enforcer.java.range>[17,18)</enforcer.java.range>
 
-        <netty.version>4.1.115.Final</netty.version>
+        <!-- 和 lettuce-core 构建所用的 Netty 版本保持一致 -->
+        <netty.version>4.2.13.Final</netty.version>
         <protobuf.version>4.36.2</protobuf.version>
         <spring-boot.version>4.1.2</spring-boot.version>
         <slf4j.version>2.0.16</slf4j.version>

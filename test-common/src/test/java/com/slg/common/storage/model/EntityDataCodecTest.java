@@ -1,4 +1,4 @@
-package com.slg.common.db;
+package com.slg.common.storage.model;
 
 import io.protostuff.LinkedBuffer;
 import io.protostuff.ProtostuffIOUtil;
@@ -13,39 +13,39 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ModuleDataCodecTest {
+class EntityDataCodecTest {
 
-    static final class HeroV1 extends ModuleData {
+    static final class HeroV1 extends EntityData {
         static final String[] KEYS = {"player_id", "hero_id"};
 
-        transient long playerId;
+        transient long ownerId;
         transient int heroId;
         @Tag(1) int level;
         @Tag(2) Map<Integer, Integer> skills = new HashMap<>();
 
-        @Override public long playerId() { return playerId; }
+        @Override public long ownerId() { return ownerId; }
         @Override public String tableName() { return "player_hero"; }
         @Override public String[] keyName() { return KEYS; }
-        @Override public Object[] key() { return new Object[]{playerId, heroId}; }
+        @Override public Object[] key() { return new Object[]{ownerId, heroId}; }
 
         @Override
         public void writeKeyParam(Object[] values) {
-            playerId = ((Number) values[0]).longValue();
+            ownerId = ((Number) values[0]).longValue();
             heroId = ((Number) values[1]).intValue();
         }
     }
 
-    static final class HeroV2 extends ModuleData {
-        transient long playerId;
+    static final class HeroV2 extends EntityData {
+        transient long ownerId;
         transient int heroId;
         @Tag(1) int level;
         @Tag(2) Map<Integer, Integer> skills = new HashMap<>();
         @Tag(3) long skinExpireAt = -1;
 
-        @Override public long playerId() { return playerId; }
+        @Override public long ownerId() { return ownerId; }
         @Override public String tableName() { return "player_hero"; }
         @Override public String[] keyName() { return HeroV1.KEYS; }
-        @Override public Object[] key() { return new Object[]{playerId, heroId}; }
+        @Override public Object[] key() { return new Object[]{ownerId, heroId}; }
         @Override public void writeKeyParam(Object[] values) { }
     }
 
@@ -63,7 +63,7 @@ class ModuleDataCodecTest {
     void transientKeysAndVersionAreNotSerialized() {
         Schema<HeroV1> schema = RuntimeSchema.getSchema(HeroV1.class);
         HeroV1 hero = new HeroV1();
-        hero.playerId = 10001;
+        hero.ownerId = 10001;
         hero.heroId = 5;
         hero.setVersion(42);
         hero.level = 7;
@@ -71,7 +71,7 @@ class ModuleDataCodecTest {
 
         HeroV1 back = decode(encode(hero, schema), schema);
 
-        assertEquals(0, back.playerId);
+        assertEquals(0, back.ownerId);
         assertEquals(0, back.heroId);
         assertEquals(0, back.getVersion());
         assertEquals(7, back.level);
